@@ -1,0 +1,28 @@
+{
+  "name": "amaron-battery-scraper",
+  "version": "1.0.0",
+  "description": "A Puppeteer-based web scraper for extracting battery data from the Amaron website",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "scrape": "node index.js",
+    "scrape:verbose": "node index.js --verbose",
+    "scrape:visible": "node index.js --headless false",
+    "test": "jest"
+  },
+  "keywords": [
+    "puppeteer",
+    "web-scraping",
+    "battery-data",
+    "csv-export"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "csv-writer": "^1.6.0",
+    "puppeteer": "^24.19.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}
