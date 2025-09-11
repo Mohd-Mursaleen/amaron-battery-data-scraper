@@ -3,7 +3,7 @@
  * Test the fixed enhanced battery data extraction
  */
 
-const SmartUrlScraper = require('./src/smartUrlScraper');
+const SmartUrlScraper = require('../src/smartUrlScraper');
 
 class FixedExtractionTester extends SmartUrlScraper {
   async testFixedExtraction() {

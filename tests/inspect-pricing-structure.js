@@ -5,7 +5,7 @@
  */
 
 const puppeteer = require('puppeteer');
-const config = require('./src/config');
+const config = require('../src/config');
 
 async function inspectPricingStructure() {
   let browser = null;
