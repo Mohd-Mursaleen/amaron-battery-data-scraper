@@ -89,6 +89,7 @@ const config = {
       'Series',
       'Item Code',
       'Battery Model',
+      'Battery Title',
       'Dimensions',
       'Voltage',
       'Ampere Hour',

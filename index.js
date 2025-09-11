@@ -5,7 +5,6 @@
  * Orchestrates the entire scraping process with CLI interface and progress reporting
  */
 
-const DirectUrlScraper = require('./src/directUrlScraper');
 const SmartUrlScraper = require('./src/smartUrlScraper');
 const config = require('./src/config');
 const utils = require('./src/utils');

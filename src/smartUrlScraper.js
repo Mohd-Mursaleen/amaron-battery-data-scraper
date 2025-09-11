@@ -17,6 +17,8 @@ class SmartUrlScraper {
     this.processedCombinations = 0;
     this.successfulCombinations = 0;
     this.validCombinations = [];
+    this.seenBatteries = new Set(); // Track duplicates
+    this.duplicateCount = 0;
   }
 
   /**
@@ -283,33 +285,69 @@ class SmartUrlScraper {
   }
 
   /**
-   * Extract battery data from the current page state
+   * Extract enhanced battery data from the current page state
    */
   async extractBatteryData(combination) {
     try {
       // Wait for results to load
-      await utils.delay(1000);
+      await utils.delay(2000);
       
-      // Extract battery data using the actual page structure
+      // Extract battery data using enhanced page structure analysis
       const batteryData = await this.page.evaluate((combo) => {
         const batteries = [];
         
-        // Check using text content
-        const pageText = document.body.textContent;
-        const hasVoltage = pageText.includes('Voltage (V)');
-        const hasAmpere = pageText.includes('Amphere Hour') || pageText.includes('AH');
-        const hasWarranty = pageText.includes('Warranty (Months)');
+        // Helper function to extract text from various selectors
+        const extractText = (selectors) => {
+          for (const selector of selectors) {
+            const element = document.querySelector(selector);
+            if (element) {
+              return element.textContent.trim();
+            }
+          }
+          return '';
+        };
         
-        if (hasVoltage || hasAmpere || hasWarranty) {
+        // Helper function to extract table row data
+        const extractTableData = (searchTexts) => {
+          for (const searchText of searchTexts) {
+            const row = Array.from(document.querySelectorAll('tr')).find(tr => 
+              tr.textContent.toLowerCase().includes(searchText.toLowerCase())
+            );
+            if (row) {
+              const cell = row.querySelector('td:last-child') || row.querySelector('td:nth-child(2)');
+              if (cell) {
+                return cell.textContent.trim();
+              }
+            }
+          }
+          return '';
+        };
+        
+        // Helper function to extract price information
+        const extractPrice = (text) => {
+          const priceMatch = text.match(/₹[\d,]+(?:\.\d{2})?/);
+          return priceMatch ? priceMatch[0] : '';
+        };
+        
+        // Check if page has battery data
+        const pageText = document.body.textContent.toLowerCase();
+        const hasBatteryData = pageText.includes('voltage') || 
+                              pageText.includes('ampere') || 
+                              pageText.includes('warranty') ||
+                              pageText.includes('battery') ||
+                              pageText.includes('amaron');
+        
+        if (hasBatteryData) {
           const battery = {
             vehicleType: combo.vehicleType,
             brand: combo.brand,
             model: combo.model,
             fuelType: combo.fuelType,
-            batteryBrand: 'Amaron', // Default brand
+            batteryBrand: 'Amaron',
             series: '',
             itemCode: '',
             batteryModel: '',
+            batteryTitle: '',
             dimensions: '',
             voltage: '',
             ampereHour: '',
@@ -325,90 +363,249 @@ class SmartUrlScraper {
             rebate: ''
           };
           
-          // Extract voltage
-          const voltageRow = Array.from(document.querySelectorAll('tr')).find(tr => 
-            tr.textContent.includes('Voltage (V)')
-          );
-          if (voltageRow) {
-            const voltageCell = voltageRow.querySelector('td');
-            if (voltageCell) {
-              battery.voltage = voltageCell.textContent.trim();
+          // Extract battery title - look for the specific pattern in table cells
+          const tableCells = document.querySelectorAll('table.comparisionTable td');
+          for (const cell of tableCells) {
+            const text = cell.textContent.trim();
+            // Look for the exact pattern: "AMARON FLO Automotive Battery - BH90D23L (AAM-FL-0BH90D23L)"
+            if (text.includes('AMARON') && text.includes('Automotive Battery') && text.includes('(AAM-')) {
+              // Extract just the title line, not the entire cell content
+              const lines = text.split('\n').map(line => line.trim()).filter(line => line);
+              for (const line of lines) {
+                if (line.includes('AMARON') && line.includes('Automotive Battery') && line.includes('(AAM-')) {
+                  battery.batteryTitle = line;
+                  break;
+                }
+              }
+              if (battery.batteryTitle) break;
             }
           }
+          
+
+          
+          // Extract item code from table
+          battery.itemCode = extractTableData([
+            'Item Code',
+            'Model Code', 
+            'Product Code',
+            'Battery Code',
+            'Part Number',
+            'SKU'
+          ]);
+          
+          // Extract battery series
+          battery.series = extractTableData([
+            'Series',
+            'Battery Series',
+            'Product Series'
+          ]);
+          
+          // Extract battery model
+          battery.batteryModel = extractTableData([
+            'Model',
+            'Battery Model',
+            'Product Model'
+          ]);
+          
+          // Extract voltage
+          battery.voltage = extractTableData([
+            'Voltage (V)',
+            'Voltage',
+            'Nominal Voltage'
+          ]);
           
           // Extract ampere hour
-          const ampereRow = Array.from(document.querySelectorAll('tr')).find(tr => 
-            tr.textContent.includes('Ref. Amphere Hour (AH)')
-          );
-          if (ampereRow) {
-            const ampereCell = ampereRow.querySelector('td');
-            if (ampereCell) {
-              battery.ampereHour = ampereCell.textContent.trim();
-            }
+          battery.ampereHour = extractTableData([
+            'Ref. Amphere Hour (AH)',
+            'Ampere Hour',
+            'AH',
+            'Capacity (AH)',
+            'Amp Hour'
+          ]);
+          
+          // Extract CCA (Cold Cranking Amps)
+          battery.cca = extractTableData([
+            'Cold Cranking Ability (CCA)',
+            'CCA',
+            'Cold Cranking Amps',
+            'Cranking Amps'
+          ]);
+          
+          // Extract dimensions with specific format from Amaron
+          battery.dimensions = extractTableData([
+            'Product Dimensions (LxBxH) (mm)',
+            'Dimensions (L x W x H)',
+            'Dimensions',
+            'Size',
+            'Battery Dimensions'
+          ]);
+          
+          // Extract product dimensions (alternative field)
+          battery.productDimensions = extractTableData([
+            'Product Dimensions',
+            'Overall Dimensions',
+            'External Dimensions'
+          ]);
+          
+          // Use whichever dimension field has data
+          if (!battery.dimensions && battery.productDimensions) {
+            battery.dimensions = battery.productDimensions;
           }
           
-          // Extract total warranty
-          const totalWarrantyRow = Array.from(document.querySelectorAll('tr')).find(tr => 
-            tr.textContent.includes('Total Warranty (Months)')
-          );
-          if (totalWarrantyRow) {
-            const warrantyCell = totalWarrantyRow.querySelector('td');
-            if (warrantyCell) {
-              battery.totalWarranty = warrantyCell.textContent.trim();
-            }
-          }
+
           
-          // Extract free warranty
-          const freeWarrantyRow = Array.from(document.querySelectorAll('tr')).find(tr => 
-            tr.textContent.includes('Free Warranty (Months)')
-          );
-          if (freeWarrantyRow) {
-            const freeWarrantyCell = freeWarrantyRow.querySelector('td');
-            if (freeWarrantyCell) {
-              battery.freeWarranty = freeWarrantyCell.textContent.trim();
-            }
-          }
+          // Extract warranties
+          battery.totalWarranty = extractTableData([
+            'Total Warranty (Months)',
+            'Total Warranty',
+            'Warranty Period'
+          ]);
           
-          // Extract pro-rata warranty
-          const proRataRow = Array.from(document.querySelectorAll('tr')).find(tr => 
-            tr.textContent.includes('Pro-rata Warranty (Months)')
-          );
-          if (proRataRow) {
-            const proRataCell = proRataRow.querySelector('td');
-            if (proRataCell) {
-              battery.proRataWarranty = proRataCell.textContent.trim();
-            }
+          battery.freeWarranty = extractTableData([
+            'Free Warranty (Months)',
+            'Free Warranty',
+            'Free Service Period'
+          ]);
+          
+          battery.proRataWarranty = extractTableData([
+            'Pro-rata Warranty (Months)',
+            'Pro-rata Warranty',
+            'Prorata Warranty'
+          ]);
+          
+          // Extract country of origin
+          battery.countryOfOrigin = extractTableData([
+            'Country of Origin',
+            'Made in',
+            'Origin'
+          ]);
+          
+          // Extract pricing information using table data and specific selectors
+          battery.basePrice = extractTableData([
+            'Base Price (Inclusive of GST)',
+            'Base Price',
+            'Original Price',
+            'MRP'
+          ]);
+          
+          battery.specialDiscount = extractTableData([
+            'Special Discount (Till 18th Sep)',
+            'Special Discount',
+            'Discount',
+            'Offer Price'
+          ]);
+          
+          battery.totalPrice = extractTableData([
+            'Total Price (Inclusive of GST)',
+            'Total Price',
+            'Final Price',
+            'Selling Price'
+          ]);
+          
+          // If table extraction fails, try specific proPriceInfo elements
+          if (!battery.basePrice || !battery.specialDiscount || !battery.totalPrice) {
+            const priceElements = document.querySelectorAll('.proPriceInfo');
+            
+            priceElements.forEach(element => {
+              const text = element.textContent.trim();
+              const className = element.className;
+              
+              // Base price usually has 's-bold font-15' class and higher amount
+              if (className.includes('s-bold font-15') && text.includes('₹')) {
+                battery.basePrice = extractPrice(text);
+              }
+              // Total price usually has 'bold-font font-18' class
+              else if (className.includes('bold-font font-18') && text.includes('₹')) {
+                battery.totalPrice = extractPrice(text);
+              }
+              // Special discount is usually the middle amount with just 'proPriceInfo' class
+              else if (className === 'proPriceInfo' && text.includes('₹') && !text.includes('rebate')) {
+                battery.specialDiscount = extractPrice(text);
+              }
+            });
           }
           
           // Extract rebate
-          const rebateRow = Array.from(document.querySelectorAll('tr')).find(tr => 
-            tr.textContent.includes('Rebate on Return of old battery')
-          );
-          if (rebateRow) {
-            const rebateCell = rebateRow.querySelector('td');
-            if (rebateCell) {
-              const rebateText = rebateCell.textContent.trim();
-              const rebateMatch = rebateText.match(/₹[\d,]+/);
-              if (rebateMatch) {
-                battery.rebate = rebateMatch[0];
-              }
+          battery.rebate = extractTableData([
+            'Rebate on Return of old battery',
+            'Rebate',
+            'Exchange Value',
+            'Old Battery Value'
+          ]);
+          
+          // If rebate not found in table, look for it in text
+          if (!battery.rebate) {
+            const rebateMatch = priceText.match(/rebate[^₹]*₹[\d,]+/i);
+            if (rebateMatch) {
+              battery.rebate = extractPrice(rebateMatch[0]);
             }
           }
           
           // Extract terminal layout image
-          const terminalImg = document.querySelector('img[src*="terminal"], img[alt*="terminal"], img[title*="terminal"]');
+          const terminalImg = document.querySelector([
+            'img[src*="terminal"]',
+            'img[alt*="terminal"]', 
+            'img[title*="terminal"]',
+            'img[src*="layout"]',
+            '.terminal-image img',
+            '.battery-image img'
+          ].join(', '));
+          
           if (terminalImg) {
             battery.terminalLayoutImageUrl = terminalImg.src;
           }
           
-          // Generate a battery model based on specifications
-          if (battery.voltage && battery.ampereHour) {
-            battery.batteryModel = `${battery.voltage}V ${battery.ampereHour}AH`;
+          // Generate battery model if not found
+          if (!battery.batteryModel) {
+            if (battery.voltage && battery.ampereHour) {
+              battery.batteryModel = `${battery.voltage}V ${battery.ampereHour}AH`;
+            } else if (battery.batteryTitle) {
+              battery.batteryModel = battery.batteryTitle;
+            } else if (battery.itemCode) {
+              battery.batteryModel = battery.itemCode;
+            }
           }
           
+          // Generate battery title if not found (do this at the end when all data is available)
+          if (!battery.batteryTitle) {
+            if (battery.series && battery.batteryModel && battery.itemCode) {
+              battery.batteryTitle = `AMARON ${battery.series.toUpperCase()} Automotive Battery - ${battery.batteryModel} (${battery.itemCode})`;
+            }
+          }
+          
+          // Data validation and cleaning
+          const cleanData = (obj) => {
+            const cleaned = {};
+            for (const [key, value] of Object.entries(obj)) {
+              // Clean and validate data
+              let cleanValue = typeof value === 'string' ? value.trim() : value;
+              
+              // Remove extra whitespace and newlines
+              if (typeof cleanValue === 'string') {
+                cleanValue = cleanValue.replace(/\s+/g, ' ').trim();
+                
+                // Remove common unwanted text
+                cleanValue = cleanValue.replace(/^[-:]\s*/, '');
+                cleanValue = cleanValue.replace(/\s*[-:]\s*$/, '');
+              }
+              
+              cleaned[key] = cleanValue;
+            }
+            return cleaned;
+          };
+          
+          const cleanedBattery = cleanData(battery);
+          
           // Only add battery if we found meaningful data
-          if (battery.voltage || battery.ampereHour || battery.totalWarranty) {
-            batteries.push(battery);
+          const hasValidData = cleanedBattery.voltage || 
+                              cleanedBattery.ampereHour || 
+                              cleanedBattery.totalWarranty ||
+                              cleanedBattery.itemCode ||
+                              cleanedBattery.batteryTitle ||
+                              cleanedBattery.dimensions;
+          
+          if (hasValidData) {
+            batteries.push(cleanedBattery);
           }
         }
         
@@ -421,6 +618,62 @@ class SmartUrlScraper {
       utils.logProgress(`Failed to extract battery data: ${error.message}`, 'error');
       return [];
     }
+  }
+
+  /**
+   * Remove duplicate batteries based on multiple criteria
+   */
+  deduplicateBatteries(batteries) {
+    const uniqueBatteries = [];
+    
+    for (const battery of batteries) {
+      // Create a unique identifier for the battery
+      const identifier = this.createBatteryIdentifier(battery);
+      
+      // Skip if we've already seen this battery
+      if (this.seenBatteries.has(identifier)) {
+        continue;
+      }
+      
+      // Add to seen set and unique list
+      this.seenBatteries.add(identifier);
+      uniqueBatteries.push(battery);
+    }
+    
+    return uniqueBatteries;
+  }
+
+  /**
+   * Create a unique identifier for a battery based on key characteristics
+   */
+  createBatteryIdentifier(battery) {
+    // Use multiple fields to create a unique identifier
+    const keyFields = [
+      battery.itemCode || '',
+      battery.batteryTitle || '',
+      battery.voltage || '',
+      battery.ampereHour || '',
+      battery.dimensions || '',
+      battery.vehicleType || '',
+      battery.brand || '',
+      battery.model || ''
+    ];
+    
+    // Clean and normalize the fields
+    const normalizedFields = keyFields.map(field => 
+      field.toString().toLowerCase()
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/[^\w\s]/g, '') // Remove special characters
+    );
+    
+    // Create identifier - prioritize item code if available
+    if (battery.itemCode && battery.itemCode.trim()) {
+      return `itemcode_${normalizedFields[0]}`;
+    }
+    
+    // If no item code, use combination of other fields
+    return normalizedFields.filter(field => field).join('_');
   }
 
   /**
@@ -457,8 +710,11 @@ class SmartUrlScraper {
         if (batteryData && batteryData.length > 0) {
           this.successfulCombinations++;
           
-          // Save battery data to CSV
-          for (const battery of batteryData) {
+          // Process and deduplicate battery data
+          const uniqueBatteries = this.deduplicateBatteries(batteryData);
+          
+          // Save unique battery data to CSV
+          for (const battery of uniqueBatteries) {
             try {
               await this.csvExporter.appendBatteryRecord(battery);
               this.scrapedCount++;
@@ -467,14 +723,24 @@ class SmartUrlScraper {
             }
           }
           
-          utils.logProgress(`        ✅ Found ${batteryData.length} batteries (Total: ${this.scrapedCount})`);
+          const duplicatesFound = batteryData.length - uniqueBatteries.length;
+          if (duplicatesFound > 0) {
+            this.duplicateCount += duplicatesFound;
+            utils.logProgress(`        ✅ Found ${batteryData.length} batteries, ${uniqueBatteries.length} unique (${duplicatesFound} duplicates) (Total: ${this.scrapedCount})`);
+          } else {
+            utils.logProgress(`        ✅ Found ${uniqueBatteries.length} unique batteries (Total: ${this.scrapedCount})`);
+          }
         }
         
         // Add small delay between requests to be respectful
         await utils.delay(500);
       }
       
-      utils.logProgress(`\n🎉 Processing completed! Processed ${this.processedCombinations} valid combinations, found ${this.scrapedCount} batteries from ${this.successfulCombinations} successful combinations`);
+      utils.logProgress(`\n🎉 Processing completed! Processed ${this.processedCombinations} valid combinations, found ${this.scrapedCount} unique batteries from ${this.successfulCombinations} successful combinations`);
+      
+      if (this.duplicateCount > 0) {
+        utils.logProgress(`🔄 Duplicate removal: ${this.duplicateCount} duplicate batteries were filtered out`);
+      }
       
     } catch (error) {
       throw new Error(`Processing failed: ${error.message}`);

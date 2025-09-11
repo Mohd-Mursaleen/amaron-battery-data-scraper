@@ -281,6 +281,9 @@ class CSVExporter {
         case 'Battery Model':
           value = rawData.batteryModel || '';
           break;
+        case 'Battery Title':
+          value = rawData.batteryTitle || '';
+          break;
         case 'Dimensions':
           value = rawData.dimensions || '';
           break;
@@ -309,16 +312,16 @@ class CSVExporter {
           value = rawData.countryOfOrigin || '';
           break;
         case 'Base Price':
-          value = this.formatNumericValue(rawData.basePrice);
+          value = rawData.basePrice || '';
           break;
         case 'Special Discount':
-          value = this.formatNumericValue(rawData.specialDiscount);
+          value = rawData.specialDiscount || '';
           break;
         case 'Total Price':
-          value = this.formatNumericValue(rawData.totalPrice);
+          value = rawData.totalPrice || '';
           break;
         case 'Rebate':
-          value = this.formatNumericValue(rawData.rebate);
+          value = rawData.rebate || '';
           break;
         default:
           value = '';
