@@ -644,36 +644,29 @@ class SmartUrlScraper {
   }
 
   /**
-   * Create a unique identifier for a battery based on key characteristics
+   * Create a unique identifier for a battery based on ONLY Item Code or Battery Title
    */
   createBatteryIdentifier(battery) {
-    // Use multiple fields to create a unique identifier
-    const keyFields = [
-      battery.itemCode || '',
-      battery.batteryTitle || '',
-      battery.voltage || '',
-      battery.ampereHour || '',
-      battery.dimensions || '',
-      battery.vehicleType || '',
-      battery.brand || '',
-      battery.model || ''
-    ];
-    
-    // Clean and normalize the fields
-    const normalizedFields = keyFields.map(field => 
-      field.toString().toLowerCase()
-        .replace(/\s+/g, ' ')
-        .trim()
-        .replace(/[^\w\s]/g, '') // Remove special characters
-    );
-    
-    // Create identifier - prioritize item code if available
+    // Priority 1: Use Item Code if available (most reliable)
     if (battery.itemCode && battery.itemCode.trim()) {
-      return `itemcode_${normalizedFields[0]}`;
+      const cleanItemCode = battery.itemCode.toString().toLowerCase()
+        .replace(/\s+/g, '')
+        .replace(/[^\w]/g, '');
+      return `itemcode_${cleanItemCode}`;
     }
     
-    // If no item code, use combination of other fields
-    return normalizedFields.filter(field => field).join('_');
+    // Priority 2: Use Battery Title if available (exact match)
+    if (battery.batteryTitle && battery.batteryTitle.trim()) {
+      const cleanTitle = battery.batteryTitle.toString().toLowerCase()
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/[^\w\s]/g, '');
+      return `title_${cleanTitle}`;
+    }
+    
+    // No duplicate detection if neither Item Code nor Battery Title is available
+    // Each battery will be considered unique
+    return `unique_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
   /**
